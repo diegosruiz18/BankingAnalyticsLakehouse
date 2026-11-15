@@ -204,7 +204,8 @@ jobs:
                   "base_parameters": {
                     "catalog_name": "$PROD_CATALOG",
                     "storage_account": "$STORAGE_ACCOUNT",
-                    "storage_credential": "$STORAGE_CREDENTIAL"
+                    "storage_credential": "$STORAGE_CREDENTIAL",
+                    "storage_prefix": "banking_prod/"
                   }
                 },
                 "existing_cluster_id": "$PROD_CLUSTER_ID",
