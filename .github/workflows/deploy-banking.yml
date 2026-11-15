@@ -1,0 +1,456 @@
+name: Deploy Banking Analytics Lakehouse DEV / PROD
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+
+    env:
+      DEV_HOST: ${{ secrets.DATABRICKS_DEV_HOST }}
+      DEV_TOKEN: ${{ secrets.DATABRICKS_DEV_TOKEN }}
+      PROD_HOST: ${{ secrets.DATABRICKS_PROD_HOST }}
+      PROD_TOKEN: ${{ secrets.DATABRICKS_PROD_TOKEN }}
+
+      # Configurar estas variables en Settings > Secrets and variables > Actions > Variables.
+      DEV_NOTEBOOK_BASE: "/Workspace/Users/diego_smartdata_proy_12@outlook.com/BankingAnalyticsLakehouse/proceso"
+      PROD_NOTEBOOK_BASE: "/Workspace/Users/diego_smartdata_proy_12@outlook.com/BankingAnalyticsLakehouse/proceso"
+      PROD_CLUSTER_NAME: ${{ vars.DATABRICKS_PROD_CLUSTER_NAME }}
+      PROD_CATALOG: "banking_prod"
+      STORAGE_ACCOUNT: "adlsprojectbank12"
+      STORAGE_CREDENTIAL: "credential-project"
+
+      JOB_NAME: job_banking_analytics_lakehouse_prod
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install jq and validate configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y jq curl
+
+          for v in DEV_HOST DEV_TOKEN PROD_HOST PROD_TOKEN DEV_NOTEBOOK_BASE PROD_NOTEBOOK_BASE PROD_CLUSTER_NAME PROD_CATALOG STORAGE_ACCOUNT STORAGE_CREDENTIAL; do
+            if [ -z "${!v:-}" ]; then
+              echo "::error::Falta configurar la variable o secreto requerido: $v"
+              exit 1
+            fi
+          done
+
+          # Normalizar hosts
+          echo "DEV_HOST=${DEV_HOST%/}" >> "$GITHUB_ENV"
+          echo "PROD_HOST=${PROD_HOST%/}" >> "$GITHUB_ENV"
+
+      - name: Export notebooks from DEV Workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p notebooks_to_deploy
+
+          NOTEBOOKS=(
+            "1.Preparacion_Ambiente_Banking"
+            "2.Ingest_SBS"
+            "3.Ingest_Fraud"
+            "4.Generacion_Banking"
+            "5.Ingest_Banking"
+            "6.Transform_Silver"
+            "7.Load_Golden"
+            "8.Grants_Banking"
+          )
+
+          for nb in "${NOTEBOOKS[@]}"; do
+            echo "Exportando desde DEV: $nb"
+            http_code=$(curl --silent --show-error --location \
+              --output "notebooks_to_deploy/$nb.py" \
+              --write-out "%{http_code}" \
+              --get \
+              --header "Authorization: Bearer $DEV_TOKEN" \
+              --data-urlencode "path=$DEV_NOTEBOOK_BASE/$nb" \
+              --data-urlencode "format=SOURCE" \
+              --data-urlencode "direct_download=true" \
+              "$DEV_HOST/api/2.0/workspace/export")
+
+            if [ "$http_code" != "200" ]; then
+              echo "::error::Falló la exportación de $nb. HTTP $http_code"
+              cat "notebooks_to_deploy/$nb.py" || true
+              exit 1
+            fi
+
+            if [ ! -s "notebooks_to_deploy/$nb.py" ]; then
+              echo "::error::El archivo exportado está vacío: $nb"
+              exit 1
+            fi
+          done
+
+          echo "Exportación DEV completada: ${#NOTEBOOKS[@]} notebooks."
+
+      - name: Import notebooks into PROD Workspace
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          curl --silent --show-error --fail-with-body \
+            --request POST \
+            --header "Authorization: Bearer $PROD_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data "$(jq -n --arg path "$PROD_NOTEBOOK_BASE" '{path:$path}')" \
+            "$PROD_HOST/api/2.0/workspace/mkdirs"
+
+          for file in notebooks_to_deploy/*.py; do
+            name="$(basename "$file" .py)"
+            dest_path="$PROD_NOTEBOOK_BASE/$name"
+            echo "Importando $name en PROD: $dest_path"
+
+            response=$(curl --silent --show-error --fail-with-body \
+              --request POST \
+              --header "Authorization: Bearer $PROD_TOKEN" \
+              --form-string "path=$dest_path" \
+              --form-string "format=SOURCE" \
+              --form-string "language=PYTHON" \
+              --form-string "overwrite=true" \
+              --form "content=@$file" \
+              "$PROD_HOST/api/2.0/workspace/import")
+
+            echo "$response"
+          done
+
+      - name: Get production cluster ID
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          clusters_response=$(curl --silent --show-error --fail-with-body \
+            --header "Authorization: Bearer $PROD_TOKEN" \
+            "$PROD_HOST/api/2.0/clusters/list")
+
+          cluster_id=$(echo "$clusters_response" | jq -r \
+            --arg name "$PROD_CLUSTER_NAME" \
+            '.clusters[]? | select(.cluster_name == $name) | .cluster_id' | head -n 1)
+
+          if [ -z "$cluster_id" ] || [ "$cluster_id" = "null" ]; then
+            echo "::error::No se encontró el clúster PROD '$PROD_CLUSTER_NAME'. Clústeres disponibles:"
+            echo "$clusters_response" | jq -r '.clusters[]? | .cluster_name'
+            exit 1
+          fi
+
+          echo "PROD_CLUSTER_ID=$cluster_id" >> "$GITHUB_ENV"
+          echo "Clúster PROD encontrado: $PROD_CLUSTER_NAME ($cluster_id)"
+
+      - name: Delete previous production Job if it exists
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          jobs_response=$(curl --silent --show-error --fail-with-body \
+            --header "Authorization: Bearer $PROD_TOKEN" \
+            "$PROD_HOST/api/2.1/jobs/list")
+
+          existing_job_id=$(echo "$jobs_response" | jq -r \
+            --arg name "$JOB_NAME" \
+            '.jobs[]? | select(.settings.name == $name) | .job_id' | head -n 1)
+
+          if [ -n "$existing_job_id" ] && [ "$existing_job_id" != "null" ]; then
+            echo "Se encontró el Job anterior ($existing_job_id). Eliminándolo..."
+            curl --silent --show-error --fail-with-body \
+              --request POST \
+              --header "Authorization: Bearer $PROD_TOKEN" \
+              --header "Content-Type: application/json" \
+              --data "$(jq -n --argjson job_id "$existing_job_id" '{job_id:$job_id}')" \
+              "$PROD_HOST/api/2.1/jobs/delete"
+            echo "Job anterior eliminado."
+          else
+            echo "No existe un Job previo con nombre $JOB_NAME."
+          fi
+
+      - name: Create production Databricks Job
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Se mantienen los parámetros validados de los notebooks.
+          # El catálogo de PROD se separa del catálogo banking_dev.
+          cat > job_config.json <<EOF
+          {
+            "name": "$JOB_NAME",
+            "format": "MULTI_TASK",
+            "max_concurrent_runs": 1,
+            "timeout_seconds": 7200,
+            "tasks": [
+              {
+                "task_key": "prepare_environment",
+                "description": "Prepara catálogo, schemas, external locations y tablas externas Delta",
+                "notebook_task": {
+                  "notebook_path": "$PROD_NOTEBOOK_BASE/1.Preparacion_Ambiente_Banking",
+                  "source": "WORKSPACE",
+                  "base_parameters": {
+                    "catalog_name": "$PROD_CATALOG",
+                    "storage_account": "$STORAGE_ACCOUNT",
+                    "storage_credential": "$STORAGE_CREDENTIAL"
+                  }
+                },
+                "existing_cluster_id": "$PROD_CLUSTER_ID",
+                "timeout_seconds": 3600,
+                "max_retries": 0
+              },
+              {
+                "task_key": "ingest_sbs",
+                "description": "Ingesta SBS hacia Bronze",
+                "notebook_task": {
+                  "notebook_path": "$PROD_NOTEBOOK_BASE/2.Ingest_SBS",
+                  "source": "WORKSPACE",
+                  "base_parameters": {
+                    "catalog_name": "$PROD_CATALOG",
+                    "storage_account": "$STORAGE_ACCOUNT",
+                    "load_mode": "FULL"
+                  }
+                },
+                "existing_cluster_id": "$PROD_CLUSTER_ID",
+                "timeout_seconds": 3600,
+                "max_retries": 0,
+                "depends_on": [{"task_key": "prepare_environment"}]
+              },
+              {
+                "task_key": "ingest_fraud",
+                "description": "Ingesta de fraude hacia Bronze",
+                "notebook_task": {
+                  "notebook_path": "$PROD_NOTEBOOK_BASE/3.Ingest_Fraud",
+                  "source": "WORKSPACE",
+                  "base_parameters": {
+                    "catalog_name": "$PROD_CATALOG",
+                    "storage_account": "$STORAGE_ACCOUNT",
+                    "load_mode": "FULL"
+                  }
+                },
+                "existing_cluster_id": "$PROD_CLUSTER_ID",
+                "timeout_seconds": 3600,
+                "max_retries": 0,
+                "depends_on": [{"task_key": "prepare_environment"}]
+              },
+              {
+                "task_key": "generate_banking",
+                "description": "Genera los datos sintéticos Banking en Raw",
+                "notebook_task": {
+                  "notebook_path": "$PROD_NOTEBOOK_BASE/4.Generacion_Banking",
+                  "source": "WORKSPACE",
+                  "base_parameters": {
+                    "storage_account": "$STORAGE_ACCOUNT"
+                  }
+                },
+                "existing_cluster_id": "$PROD_CLUSTER_ID",
+                "timeout_seconds": 3600,
+                "max_retries": 0,
+                "depends_on": [{"task_key": "prepare_environment"}]
+              },
+              {
+                "task_key": "ingest_banking",
+                "description": "Ingesta Banking hacia Bronze",
+                "notebook_task": {
+                  "notebook_path": "$PROD_NOTEBOOK_BASE/5.Ingest_Banking",
+                  "source": "WORKSPACE",
+                  "base_parameters": {
+                    "catalog_name": "$PROD_CATALOG",
+                    "storage_account": "$STORAGE_ACCOUNT",
+                    "load_mode": "FULL"
+                  }
+                },
+                "existing_cluster_id": "$PROD_CLUSTER_ID",
+                "timeout_seconds": 3600,
+                "max_retries": 0,
+                "depends_on": [{"task_key": "generate_banking"}]
+              },
+              {
+                "task_key": "transform_silver",
+                "description": "Transforma y valida las tablas Silver",
+                "notebook_task": {
+                  "notebook_path": "$PROD_NOTEBOOK_BASE/6.Transform_Silver",
+                  "source": "WORKSPACE",
+                  "base_parameters": {
+                    "catalog_name": "$PROD_CATALOG",
+                    "storage_account": "$STORAGE_ACCOUNT",
+                    "load_mode": "FULL"
+                  }
+                },
+                "existing_cluster_id": "$PROD_CLUSTER_ID",
+                "timeout_seconds": 3600,
+                "max_retries": 0,
+                "depends_on": [
+                  {"task_key": "ingest_sbs"},
+                  {"task_key": "ingest_fraud"},
+                  {"task_key": "ingest_banking"}
+                ]
+              },
+              {
+                "task_key": "load_golden",
+                "description": "Construye y valida las tablas Golden",
+                "notebook_task": {
+                  "notebook_path": "$PROD_NOTEBOOK_BASE/7.Load_Golden",
+                  "source": "WORKSPACE",
+                  "base_parameters": {
+                    "catalog_name": "$PROD_CATALOG",
+                    "storage_account": "$STORAGE_ACCOUNT",
+                    "load_mode": "FULL"
+                  }
+                },
+                "existing_cluster_id": "$PROD_CLUSTER_ID",
+                "timeout_seconds": 3600,
+                "max_retries": 0,
+                "depends_on": [{"task_key": "transform_silver"}]
+              },
+              {
+                "task_key": "grants_banking",
+                "description": "Aplica permisos Unity Catalog para DataEngineers y DataAnalysts",
+                "notebook_task": {
+                  "notebook_path": "$PROD_NOTEBOOK_BASE/8.Grants_Banking",
+                  "source": "WORKSPACE",
+                  "base_parameters": {
+                    "catalog_name": "$PROD_CATALOG"
+                  }
+                },
+                "existing_cluster_id": "$PROD_CLUSTER_ID",
+                "timeout_seconds": 3600,
+                "max_retries": 0,
+                "depends_on": [{"task_key": "load_golden"}]
+              }
+            ],
+            "schedule": {
+              "quartz_cron_expression": "0 0 8 * * ?",
+              "timezone_id": "America/Lima",
+              "pause_status": "PAUSED"
+            },
+            "tags": {
+              "environment": "production",
+              "created_by": "github_actions",
+              "project": "BankingAnalyticsLakehouse",
+              "cluster_used": "$PROD_CLUSTER_NAME"
+            }
+          }
+          EOF
+
+          jq . job_config.json >/dev/null
+
+          create_response=$(curl --silent --show-error --fail-with-body \
+            --request POST \
+            --header "Authorization: Bearer $PROD_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data @job_config.json \
+            "$PROD_HOST/api/2.1/jobs/create")
+
+          job_id=$(echo "$create_response" | jq -r '.job_id')
+          if [ -z "$job_id" ] || [ "$job_id" = "null" ]; then
+            echo "::error::No se pudo crear el Job de producción."
+            echo "$create_response"
+            exit 1
+          fi
+
+          echo "PROD_JOB_ID=$job_id" >> "$GITHUB_ENV"
+          echo "Job de producción creado: $JOB_NAME (ID: $job_id)"
+
+      - name: Validate production Job configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          details=$(curl --silent --show-error --fail-with-body \
+            --header "Authorization: Bearer $PROD_TOKEN" \
+            "$PROD_HOST/api/2.1/jobs/get?job_id=$PROD_JOB_ID")
+
+          echo "$details" | jq -e --arg name "$JOB_NAME" \
+            '.settings.name == $name and (.settings.tasks | length) == 8' >/dev/null
+
+          echo "Job validado. Tareas y notebooks:"
+          echo "$details" | jq -r \
+            '.settings.tasks[] | "- " + .task_key + " -> " + .notebook_task.notebook_path'
+
+      - name: Run production Job
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          run_response=$(curl --silent --show-error --fail-with-body \
+            --request POST \
+            --header "Authorization: Bearer $PROD_TOKEN" \
+            --header "Content-Type: application/json" \
+            --data "$(jq -n --argjson job_id "$PROD_JOB_ID" '{job_id:$job_id}')" \
+            "$PROD_HOST/api/2.1/jobs/run-now")
+
+          run_id=$(echo "$run_response" | jq -r '.run_id')
+          if [ -z "$run_id" ] || [ "$run_id" = "null" ]; then
+            echo "::error::No se pudo iniciar el Job de producción."
+            echo "$run_response"
+            exit 1
+          fi
+
+          echo "PROD_RUN_ID=$run_id" >> "$GITHUB_ENV"
+          echo "Ejecución iniciada: $run_id"
+          echo "URL: $PROD_HOST/jobs/$PROD_JOB_ID/runs/$run_id"
+
+      - name: Monitor production Job
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          max_wait_time=5400
+          check_interval=30
+          wait_time=0
+
+          while [ "$wait_time" -lt "$max_wait_time" ]; do
+            run_status=$(curl --silent --show-error --fail-with-body \
+              --header "Authorization: Bearer $PROD_TOKEN" \
+              "$PROD_HOST/api/2.1/jobs/runs/get?run_id=$PROD_RUN_ID")
+
+            life_cycle=$(echo "$run_status" | jq -r '.state.life_cycle_state // "UNKNOWN"')
+            result=$(echo "$run_status" | jq -r '.state.result_state // "RUNNING"')
+
+            echo "Estado del Job: $life_cycle / $result (espera: ${wait_time}s)"
+            echo "$run_status" | jq -r \
+              '.tasks[]? | "  " + .task_key + ": " + (.state.life_cycle_state // "UNKNOWN") + " / " + (.state.result_state // "RUNNING")'
+
+            case "$life_cycle" in
+              TERMINATED)
+                if [ "$result" = "SUCCESS" ]; then
+                  echo "Ejecución de producción completada correctamente."
+                  exit 0
+                else
+                  echo "::error::El Job terminó con resultado: $result"
+                  exit 1
+                fi
+                ;;
+              INTERNAL_ERROR|SKIPPED)
+                echo "::error::La ejecución terminó con estado: $life_cycle"
+                exit 1
+                ;;
+            esac
+
+            sleep "$check_interval"
+            wait_time=$((wait_time + check_interval))
+          done
+
+          echo "::error::Se agotó el tiempo de monitoreo. La ejecución puede continuar en Databricks."
+          echo "Revisar: $PROD_HOST/jobs/$PROD_JOB_ID/runs/$PROD_RUN_ID"
+          exit 1
+
+      - name: Cleanup
+        if: always()
+        shell: bash
+        run: |
+          rm -rf notebooks_to_deploy
+          rm -f job_config.json
+
+      - name: Deployment summary
+        if: success()
+        run: |
+          echo "Banking Analytics Lakehouse desplegado y ejecutado en PROD."
+          echo "Job: $JOB_NAME"
+          echo "Job ID: $PROD_JOB_ID"
+          echo "Run ID: $PROD_RUN_ID"
