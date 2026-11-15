@@ -120,14 +120,14 @@ jobs:
 
             echo "Importando $name en PROD como $notebook_language: $dest_path"
 
-            response=$(curl --silent --show-error --fail-with-body \\
-              --request POST \\
-              --header "Authorization: Bearer $PROD_TOKEN" \\
-              --form-string "path=$dest_path" \\
-              --form-string "format=SOURCE" \\
-              --form-string "language=$notebook_language" \\
-              --form-string "overwrite=true" \\
-              --form "content=@$file" \\
+            response=$(curl --silent --show-error --fail-with-body \
+              --request POST \
+              --header "Authorization: Bearer $PROD_TOKEN" \
+              --form-string "path=$dest_path" \
+              --form-string "format=SOURCE" \
+              --form-string "language=$notebook_language" \
+              --form-string "overwrite=true" \
+              --form "content=@$file" \
               "$PROD_HOST/api/2.0/workspace/import")
 
             echo "$response"
