@@ -6,9 +6,6 @@ on:
       - main
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
   deploy:
     runs-on: ubuntu-latest
@@ -48,7 +45,7 @@ jobs:
             fi
           done
 
-          # Normalizar hosts
+          # Normalizar hosts: sin slash final.
           echo "DEV_HOST=${DEV_HOST%/}" >> "$GITHUB_ENV"
           echo "PROD_HOST=${PROD_HOST%/}" >> "$GITHUB_ENV"
 
@@ -110,16 +107,24 @@ jobs:
           for file in notebooks_to_deploy/*.py; do
             name="$(basename "$file" .py)"
             dest_path="$PROD_NOTEBOOK_BASE/$name"
-            echo "Importando $name en PROD: $dest_path"
 
-            response=$(curl --silent --show-error --fail-with-body \
-              --request POST \
-              --header "Authorization: Bearer $PROD_TOKEN" \
-              --form-string "path=$dest_path" \
-              --form-string "format=SOURCE" \
-              --form-string "language=PYTHON" \
-              --form-string "overwrite=true" \
-              --form "content=@$file" \
+            # El notebook 1 es SQL, los notebooks 2 al 8 son python
+            if [ "$name" = "1.Preparacion_Ambiente_Banking" ]; then
+              notebook_language="SQL"
+            else
+              notebook_language="PYTHON"
+            fi
+
+            echo "Importando $name en PROD como $notebook_language: $dest_path"
+
+            response=$(curl --silent --show-error --fail-with-body \\
+              --request POST \\
+              --header "Authorization: Bearer $PROD_TOKEN" \\
+              --form-string "path=$dest_path" \\
+              --form-string "format=SOURCE" \\
+              --form-string "language=$notebook_language" \\
+              --form-string "overwrite=true" \\
+              --form "content=@$file" \\
               "$PROD_HOST/api/2.0/workspace/import")
 
             echo "$response"
