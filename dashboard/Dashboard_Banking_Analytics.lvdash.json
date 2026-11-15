@@ -1,0 +1,774 @@
+{
+  "datasets": [
+    {
+      "name": "90799f0d",
+      "displayName": "KPI_Fraude",
+      "queryLines": [
+        "SELECT\r\n",
+        "    SUM(total_transactions) AS total_transactions,\r\n",
+        "    SUM(fraud_transactions) AS fraud_transactions,\r\n",
+        "    SUM(legitimate_transactions) AS legitimate_transactions,\r\n",
+        "    SUM(fraud_amount) AS fraud_amount,\r\n",
+        "    ROUND(\r\n",
+        "        100.0 * SUM(fraud_transactions)\r\n",
+        "        / NULLIF(SUM(total_transactions), 0),\r\n",
+        "        2\r\n",
+        "    ) AS fraud_rate_pct\r\n",
+        "FROM banking_prod.golden.agg_fraud_daily;"
+      ]
+    },
+    {
+      "name": "5e81837a",
+      "displayName": "Evolucion_diaria_fraude",
+      "queryLines": [
+        "SELECT\r\n",
+        "    transaction_date,\r\n",
+        "    SUM(total_transactions) AS total_transactions,\r\n",
+        "    SUM(fraud_transactions) AS fraud_transactions,\r\n",
+        "    SUM(legitimate_transactions) AS legitimate_transactions,\r\n",
+        "    SUM(fraud_amount) AS fraud_amount,\r\n",
+        "    ROUND(\r\n",
+        "        100.0 * SUM(fraud_transactions)\r\n",
+        "        / NULLIF(SUM(total_transactions), 0),\r\n",
+        "        2\r\n",
+        "    ) AS fraud_rate_pct\r\n",
+        "FROM banking_prod.golden.agg_fraud_daily\r\n",
+        "GROUP BY transaction_date\r\n",
+        "ORDER BY transaction_date;"
+      ]
+    },
+    {
+      "name": "98d52ff2",
+      "displayName": "Creditos_sbs",
+      "queryLines": [
+        "SELECT\r\n",
+        "    fecha_corte,\r\n",
+        "    concepto,\r\n",
+        "    total_creditos_miles_soles\r\n",
+        "FROM banking_prod.golden.agg_sbs_creditos\r\n",
+        "WHERE nivel_jerarquia = 0\r\n",
+        "  AND concepto <> 'TOTAL DE CRÉDITOS'\r\n",
+        "ORDER BY total_creditos_miles_soles DESC;"
+      ]
+    },
+    {
+      "name": "f99866bb",
+      "displayName": "Depositos_sbs",
+      "queryLines": [
+        "SELECT\r\n",
+        "    fecha_corte,\r\n",
+        "    moneda,\r\n",
+        "    SUM(numero_cuentas) AS numero_cuentas,\r\n",
+        "    SUM(saldo_final_miles_soles) AS saldo_final_miles_soles\r\n",
+        "FROM banking_prod.golden.agg_sbs_depositos\r\n",
+        "GROUP BY fecha_corte, moneda\r\n",
+        "ORDER BY fecha_corte, moneda;"
+      ]
+    },
+    {
+      "name": "980cae52",
+      "displayName": "Morosidad_sbs",
+      "queryLines": [
+        "SELECT\r\n",
+        "    fecha_corte,\r\n",
+        "    empresa_bancaria,\r\n",
+        "    morosidad_pct\r\n",
+        "FROM banking_prod.golden.agg_sbs_morosidad\r\n",
+        "WHERE concepto_credito = 'Total Créditos Directos'\r\n",
+        "  AND empresa_bancaria <> 'TOTAL BANCA MÚLTIPLE'\r\n",
+        "ORDER BY morosidad_pct DESC;"
+      ]
+    }
+  ],
+  "pages": [
+    {
+      "name": "bd8a6c2f",
+      "displayName": "Dashboard",
+      "layout": [
+        {
+          "widget": {
+            "name": "kpi_total_tx",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "90799f0d",
+                  "fields": [
+                    {
+                      "name": "sum(total_transactions)",
+                      "expression": "SUM(`total_transactions`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "headerAlignment": "center",
+                "contentAlignment": "center",
+                "title": {
+                  "value": "Total transacciones",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(total_transactions)",
+                  "rowNumber": 0,
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "style": {
+                    "fontSize": 40,
+                    "fontWeight": 700,
+                    "fontColor": "#15AFDD"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            },
+            "specExtensions": {
+              "widgetBorderColor": {
+                "dark": "#15AFDD"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_fraudes",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "90799f0d",
+                  "fields": [
+                    {
+                      "name": "sum(fraud_transactions)",
+                      "expression": "SUM(`fraud_transactions`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "headerAlignment": "center",
+                "contentAlignment": "center",
+                "title": {
+                  "value": "Fraudes",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(fraud_transactions)",
+                  "rowNumber": 0,
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "style": {
+                    "fontSize": 40,
+                    "fontWeight": 700,
+                    "fontColor": "#E0708E"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            },
+            "specExtensions": {
+              "widgetBorderColor": {
+                "dark": "#C85070"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_tasa_fraude",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "90799f0d",
+                  "fields": [
+                    {
+                      "name": "max(fraud_rate_pct)",
+                      "expression": "MAX(`fraud_rate_pct`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "headerAlignment": "center",
+                "contentAlignment": "center",
+                "title": {
+                  "value": "Tasa de fraude",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "max(fraud_rate_pct)",
+                  "rowNumber": 0,
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  },
+                  "formatTemplate": "{{ @formatted }}%",
+                  "style": {
+                    "fontSize": 40,
+                    "fontWeight": 700,
+                    "fontColor": "#E0B450"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            },
+            "specExtensions": {
+              "widgetBorderColor": {
+                "dark": "#C89930"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "kpi_monto_fraude",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "90799f0d",
+                  "fields": [
+                    {
+                      "name": "sum(fraud_amount)",
+                      "expression": "SUM(`fraud_amount`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "headerAlignment": "center",
+                "contentAlignment": "center",
+                "title": {
+                  "value": "Monto de fraude",
+                  "fields": []
+                }
+              },
+              "version": 2,
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(fraud_amount)",
+                  "rowNumber": 0,
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "style": {
+                    "fontSize": 40,
+                    "fontWeight": 700,
+                    "fontColor": "#6CC48A"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            },
+            "specExtensions": {
+              "widgetBorderColor": {
+                "dark": "#52A870"
+              }
+            }
+          },
+          "position": {
+            "x": 9,
+            "y": 2,
+            "width": 3,
+            "height": 3
+          }
+        },
+        {
+          "widget": {
+            "name": "evolucion_fraude",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "5e81837a",
+                  "fields": [
+                    {
+                      "name": "transaction_date",
+                      "expression": "`transaction_date`"
+                    },
+                    {
+                      "name": "sum(total_transactions)",
+                      "expression": "SUM(`total_transactions`)"
+                    },
+                    {
+                      "name": "sum(fraud_transactions)",
+                      "expression": "SUM(`fraud_transactions`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "headerAlignment": "center",
+                "title": {
+                  "value": "Evolución diaria de transacciones y fraude",
+                  "fields": []
+                }
+              },
+              "version": 3,
+              "widgetType": "line",
+              "encodings": {
+                "x": {
+                  "fieldName": "transaction_date",
+                  "axis": {
+                    "labelAngle": 0,
+                    "hideGrid": true
+                  },
+                  "displayName": "Fecha",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "scale": {
+                    "type": "quantitative"
+                  },
+                  "axis": {
+                    "title": "Transacciones"
+                  },
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "fields": [
+                    {
+                      "fieldName": "sum(total_transactions)",
+                      "displayName": "Total transacciones"
+                    },
+                    {
+                      "fieldName": "sum(fraud_transactions)",
+                      "displayName": "Transacciones fraudulentas"
+                    }
+                  ]
+                },
+                "color": {
+                  "legend": {
+                    "position": "bottom"
+                  }
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 5,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "creditos_sbs",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "98d52ff2",
+                  "fields": [
+                    {
+                      "name": "sum(total_creditos_miles_soles)",
+                      "expression": "SUM(`total_creditos_miles_soles`)"
+                    },
+                    {
+                      "name": "concepto",
+                      "expression": "`concepto`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "headerAlignment": "center",
+                "title": {
+                  "value": "Distribución de créditos SBS",
+                  "fields": []
+                }
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(total_creditos_miles_soles)",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "displayName": "Créditos (miles S/)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "concepto",
+                  "axis": {
+                    "labelAngle": 0,
+                    "hideTitle": true
+                  },
+                  "displayName": "Concepto",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 5,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "depositos_moneda",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "f99866bb",
+                  "fields": [
+                    {
+                      "name": "moneda",
+                      "expression": "`moneda`"
+                    },
+                    {
+                      "name": "sum(saldo_final_miles_soles)",
+                      "expression": "SUM(`saldo_final_miles_soles`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "headerAlignment": "center",
+                "title": {
+                  "value": "Depósitos por moneda",
+                  "fields": []
+                }
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "moneda",
+                  "axis": {
+                    "labelAngle": 0
+                  },
+                  "displayName": "Moneda",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "y-reversed"
+                    }
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(saldo_final_miles_soles)",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "compact",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 1
+                    }
+                  },
+                  "displayName": "Saldo final (miles S/)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 12,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "ranking_morosidad",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "980cae52",
+                  "fields": [
+                    {
+                      "name": "avg(morosidad_pct)",
+                      "expression": "AVG(`morosidad_pct`)"
+                    },
+                    {
+                      "name": "empresa_bancaria",
+                      "expression": "`empresa_bancaria`"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "frame": {
+                "showTitle": true,
+                "headerAlignment": "center",
+                "title": {
+                  "value": "Ranking de morosidad bancaria",
+                  "fields": []
+                }
+              },
+              "version": 3,
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "avg(morosidad_pct)",
+                  "format": {
+                    "type": "number-plain",
+                    "abbreviation": "none",
+                    "decimalPlaces": {
+                      "type": "max",
+                      "places": 2
+                    }
+                  },
+                  "displayName": "Morosidad (%)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "empresa_bancaria",
+                  "axis": {
+                    "labelAngle": 0,
+                    "hideTitle": true
+                  },
+                  "displayName": "Empresa bancaria",
+                  "scale": {
+                    "type": "categorical",
+                    "sort": {
+                      "by": "x-reversed"
+                    }
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              },
+              "data": {
+                "queryName": "main_query"
+              }
+            }
+          },
+          "position": {
+            "x": 6,
+            "y": 12,
+            "width": 6,
+            "height": 7
+          }
+        },
+        {
+          "widget": {
+            "name": "header",
+            "spec": {
+              "version": 1,
+              "widgetType": "text",
+              "verticalAlign": "center",
+              "encodings": {
+                "text": {
+                  "fields": [],
+                  "lines": [
+                    "<div style=\"text-align:center\">\n",
+                    "<span style=\"font-size:30px;font-weight:700;letter-spacing:3px;color:#EBEBEB\">BANKING ANALYTICS</span><br/>\n",
+                    "<span style=\"font-size:15px;color:#8FA3B3\">Indicadores financieros y detección de fraude</span>\n",
+                    "</div>\n"
+                  ]
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 12,
+            "height": 2
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS",
+      "layoutVersion": "GRID_V1"
+    }
+  ],
+  "uiSettings": {
+    "theme": {
+      "canvasBackgroundColor": {
+        "light": "#EBEBEB",
+        "dark": "#0B1620"
+      },
+      "widgetBackgroundColor": {
+        "light": "#FCFCFD",
+        "dark": "#13212D"
+      },
+      "widgetBorderColor": {
+        "light": "#E0E0E0",
+        "dark": "#1E3142"
+      },
+      "visualizationColors": [
+        "#15AFDD",
+        "#C85070",
+        "#2375A8",
+        "#52A870",
+        "#C89930"
+      ],
+      "widgetHeaderAlignment": "CENTER",
+      "widgetPadding": 16,
+      "widgetMargin": 8,
+      "widgetCornerRadius": 12,
+      "widgetShadow": 10,
+      "fontSettings": {
+        "base": {
+          "fontFamily": "Inter",
+          "fontColor": {
+            "light": "#08141A",
+            "dark": "#EBEBEB"
+          }
+        },
+        "widgetTitle": {
+          "fontColor": {
+            "dark": "#D6E2EC"
+          },
+          "fontSize": 15,
+          "fontWeight": 600
+        },
+        "fieldTitle": {
+          "fontColor": {
+            "dark": "#8FA3B3"
+          },
+          "fontSize": 12
+        },
+        "fieldValue": {
+          "fontColor": {
+            "dark": "#B8C7D3"
+          },
+          "fontSize": 12
+        }
+      },
+      "gridLineColor": {
+        "dark": "#1E3142"
+      }
+    },
+    "applyModeEnabled": false
+  }
+}
