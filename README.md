@@ -134,7 +134,7 @@ El dashboard presenta:
 - Depósitos por moneda.
 - Ranking de morosidad bancaria.
 
-**Nota:** el importe `fraud_amount` corresponde al campo `Amount` del dataset de fraude y está expresado en euros. Las cifras de créditos y depósitos SBS se almacenan en miles de soles. La información SBS incluida corresponde al corte de diciembre de 2025; no debe interpretarse como una serie histórica.
+**Nota:** el importe `fraud_amount` corresponde al campo `Amount` del dataset de fraude y está expresado en euros. Las cifras de créditos y depósitos SBS se almacenan en miles de soles. La información SBS incluida corresponde al corte de diciembre de 2025, no debe interpretarse como una serie histórica.
 
 Más información: [Dashboard Databricks](./documentacion/03_dashboard.md).
 
@@ -238,7 +238,7 @@ BankingAnalyticsLakehouse/
 │       ├── original/
 │       └── convertido/
 |   └── fraud_transactions/
-│       └── creditcard.csv
+│       └── creditcard.csv (Se adjunta enlace de descarga)
 │
 ├── evidencias/
 │   ├── 1.azure/
